@@ -38,9 +38,19 @@ type RequestTaskArgs struct {
 }
 
 type RequestTaskReply struct {
-	TaskType MRTaskType
-	FileName string
+	TaskID            int
+	TaskType          MRTaskType
+	FileName          string
+	NReduce           int
+	IntermediateFiles []string
 }
+
+type MapDoneArgs struct {
+	Success           bool
+	IntermediateFiles []string
+}
+
+type MapDoneReply struct{}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.

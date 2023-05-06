@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -22,16 +23,19 @@ const (
 // Let's keep track of tasks using this type.
 // Unexported for now.
 type task struct {
+	taskID    int
 	taskState TaskState
 	workerID  uuid.UUID
 }
 
 type Coordinator struct {
+	sync.Mutex
 	// We need a list of map tasks and reduce tasks. Do we use a map?
 	// An array will suffice for now. Actually, use a map for the
 	// map tasks, and we can use the file name for the task as a key.
-	mapTasks    map[string]*task
-	reduceTasks []*task
+	mapTasks     map[string]*task
+	reduceTasks  []*task
+	mapsComplete bool
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -46,15 +50,28 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
 	// A worker has requested a task.
+	c.Lock()
+	defer c.Unlock()
 	for file, task := range c.mapTasks {
 		if task.taskState == Idle {
+			reply.TaskID = task.taskID
 			reply.FileName = file
 			reply.TaskType = Map
+			reply.NReduce = len(c.reduceTasks)
 			task.workerID = uuid.MustParse(args.WorkerID)
+			task.taskState = InProgress
 			return nil
 		}
 	}
 	fmt.Println("No available tasks")
+	reply.TaskID = -1
+	return nil
+}
+
+func (c *Coordinator) MapDone(args *MapDoneArgs, reply *MapDoneReply) error {
+	c.Lock()
+	// Need to think of a better way of looking up the tasks.
+	c.Unlock()
 	return nil
 }
 
@@ -92,8 +109,17 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	}
 
 	// Let's create a map task for each file.
-	for _, file := range files {
-		c.mapTasks[file] = &task{}
+	for i, file := range files {
+		c.mapTasks[file] = &task{
+			taskID: i,
+		}
+	}
+
+	for i := 0; i < nReduce; i++ {
+		rtask := &task{
+			taskID: i,
+		}
+		c.reduceTasks = append(c.reduceTasks, rtask)
 	}
 
 	c.server()
